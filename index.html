@@ -188,6 +188,78 @@ return{reg:reg,regs:regs,mesas:mesas}}
 function cs(v){v=String(v==null?'':v);if(/^[=+\-@\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'}
 function dl(name,rows){var t='﻿'+rows.map(function(r){return r.map(cs).join(',')}).join('\r\n');var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv;charset=utf-8'}));a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
 function csvReg(){var B=admBuild(S.admData||{});dl('pr-open-registrados.csv',[['Fecha de registro','Nombre','Empresa','WhatsApp','Consentimiento','Orden de mesas asignado','Mesas a las que asistió']].concat(B.regs.map(function(x){var r=x.r;return[r.fecha,r.nombre,r.empresa,String(r.whatsapp||'').replace(/^\+/,''),r.consentimiento,r.orden_mesas,x.mesas]})))}
+
+
+/* ===== Resumen en PDF por participante y mesa (sin librerías externas) =====
+   RESUMEN_DEMO=true mientras el contenido sea de ejemplo; ponlo en false cuando exista el resumen real con IA. */
+var RESUMEN_DEMO=true;
+var HW=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+function tw(s,sz,b){s=String(s).normalize('NFD').replace(/[̀-ͯ]/g,'');var w=0;for(var i=0;i<s.length;i++){var c=s.charCodeAt(i);w+=(c>=32&&c<=126)?HW[c-32]:556}return w*sz/1000*(b?1.06:1)}
+function wa(s){var m={'—':0x97,'–':0x96,'‘':0x91,'’':0x92,'“':0x93,'”':0x94,'…':0x85,'•':0x95,'→':0x3E},o='';for(var i=0;i<s.length;i++){var ch=s[i],c=s.charCodeAt(i);if(m[ch]!==undefined)o+=String.fromCharCode(m[ch]);else if(c<256)o+=ch;else o+='?'}return o.replace(/[\\()]/g,'\\$&')}
+function pdfMesa(i){var m=MESAS[i],pages=[],cur=null,y=0,W=595,H=842,M=56,CW=W-2*M,OR='0.894 0.416 0.169';
+function np(){cur=[];pages.push(cur);cur.push(OR+' rg 0 '+(H-26)+' '+W+' 26 re f');cur.push('BT /F2 9 Tf 1 1 1 rg '+M+' '+(H-17)+' Td ('+wa('PRORP · PR OPEN · ENCUENTRO DE AGENCIAS')+') Tj ET');y=H-70}
+function txt(s,x,yy,sz,f,col){cur.push('BT /'+f+' '+sz+' Tf '+col+' rg '+x+' '+yy+' Td ('+wa(s)+') Tj ET')}
+function wrap(s,sz,b,w){var ws=String(s).split(' '),L=[],l='';ws.forEach(function(x){var t=l?l+' '+x:x;if(tw(t,sz,b)>w&&l){L.push(l);l=x}else l=t});if(l)L.push(l);return L}
+function para(s,sz,f,col,ind,gap,bul){var L=wrap(s,sz,f==='F2',CW-ind);L.forEach(function(l,k){if(y<M+30)np();if(k===0&&bul)txt(bul,M+ind-14,y,sz,f,col);txt(l,M+ind,y,sz,f,col);y-=sz*1.5});y-=gap||0}
+function head(s){if(y<M+90)np();y-=12;txt(s,M,y,9,'F2',OR);y-=7;cur.push(OR+' RG 0.8 w '+M+' '+y+' m '+(M+CW)+' '+y+' l S');y-=17}
+np();
+para('Mesa '+m.n,11,'F2','0.4 0.4 0.4',0,2);
+para(m.t,20,'F2','0.1 0.1 0.1',0,6);
+para('Participante: '+(S.name.trim()||'Participante')+(S.company.trim()?' · '+S.company.trim():''),10,'F1','0.3 0.3 0.3',0,0);
+para(new Date().toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}),10,'F1','0.3 0.3 0.3',0,8);
+if(RESUMEN_DEMO){cur.push('0.98 0.93 0.88 rg '+M+' '+(y-9)+' '+CW+' 22 re f');txt('Resumen de ejemplo: contenido de demostración, no generado de una conversación real.',M+8,y-2,9,'F1','0.45 0.25 0.1');y-=30}
+head('A · RESUMEN');para(m.sum,11,'F1','0.15 0.15 0.15',0,4);
+head('B · CONCLUSIONES');m.concl.forEach(function(c){para(c,11,'F1','0.15 0.15 0.15',16,3,'-')});
+head('C · ACCIONES CLAVE');m.acc.forEach(function(a,k){para(a,11,'F1','0.15 0.15 0.15',16,3,(k+1)+'.')});
+head('IDEAS CLAVE DE LA MESA (entre paréntesis, las menciones)');para(m.nodes.slice().sort(function(a,b){return b[1]-a[1]}).map(function(n){return n[0]+' ('+n[1]+')'}).join('  ·  '),11,'F1','0.15 0.15 0.15',0,4);
+head('PALABRAS CLAVE');para(m.words.join('  ·  '),11,'F1','0.15 0.15 0.15',0,4);
+pages.forEach(function(c,pi){c.push('0.75 0.75 0.75 RG 0.5 w '+M+' 44 m '+(M+CW)+' 44 l S');
+c.push('BT /F1 8 Tf 0.45 0.45 0.45 rg '+M+' 32 Td ('+wa('PR Open · N3 Labs, Potenttial Group · Contacto: WhatsApp +52 55 2905 0452')+') Tj ET');
+c.push('BT /F1 8 Tf 0.45 0.45 0.45 rg '+(M+CW-40)+' 32 Td ('+wa('Página '+(pi+1)+' de '+pages.length)+') Tj ET')});
+var objs=[],add=function(s){objs.push(s);return objs.length};
+add('<< /Type /Catalog /Pages 2 0 R >>');add('');add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+var kids=[];pages.forEach(function(c){var cs=c.join('\n'),cid=objs.length+2,pid=add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+cid+' 0 R >>');add('<< /Length '+cs.length+' >>\nstream\n'+cs+'\nendstream');kids.push(pid+' 0 R')});
+objs[1]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+pages.length+' >>';
+var out='%PDF-1.4\n',offs=[];objs.forEach(function(o,k){offs.push(out.length);out+=(k+1)+' 0 obj\n'+o+'\nendobj\n'});
+var xr=out.length;out+='xref\n0 '+(objs.length+1)+'\n0000000000 65535 f \n'+offs.map(function(o){return('0000000000'+o).slice(-10)+' 00000 n \n'}).join('')+'trailer\n<< /Size '+(objs.length+1)+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
+var u=new Uint8Array(out.length);for(var k=0;k<out.length;k++)u[k]=out.charCodeAt(k)&255;
+var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([u],{type:'application/pdf'}));a.download='pr-open-mesa-'+m.n+'-resumen.pdf';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
+
+/* ===== Exportar a Excel (.xlsx) sin librerías externas ===== */
+var CT=null;
+function crc32(u){if(!CT){CT=[];for(var n=0,c,k;n<256;n++){c=n;for(k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;CT[n]=c>>>0}}var c2=0xFFFFFFFF;for(var i=0;i<u.length;i++)c2=CT[(c2^u[i])&255]^(c2>>>8);return(c2^0xFFFFFFFF)>>>0}
+function u16(v){return[v&255,(v>>8)&255]}function u32(v){return[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255]}
+function zipStore(files){var enc=new TextEncoder(),parts=[],cd=[],off=0;
+files.forEach(function(f){var nm=enc.encode(f.n),d=enc.encode(f.t),c=crc32(d);
+var h=[].concat(u32(0x04034b50),u16(20),u16(0x0800),u16(0),u16(0),u16(0x21),u32(c),u32(d.length),u32(d.length),u16(nm.length),u16(0));
+parts.push(new Uint8Array(h),nm,d);
+cd.push(new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0x0800),u16(0),u16(0),u16(0x21),u32(c),u32(d.length),u32(d.length),u16(nm.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off))),nm);
+off+=h.length+nm.length+d.length});
+var cs=0;cd.forEach(function(x){cs+=x.length});
+var end=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(cs),u32(off),u16(0)));
+return new Blob(parts.concat(cd,[end]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})}
+function xe(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]}).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'')}
+function colL(i){return String.fromCharCode(65+i)}
+function sheetXml(rows,widths){var x='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>'+widths.map(function(w,i){return '<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>'}).join('')+'</cols><sheetData>';
+rows.forEach(function(r,ri){x+='<row r="'+(ri+1)+'">'+r.map(function(v,ci){var ref=colL(ci)+(ri+1),st=ri===0?' s="1"':'';
+if(typeof v==='number')return '<c r="'+ref+'"'+st+'><v>'+v+'</v></c>';
+return '<c r="'+ref+'" t="inlineStr"'+st+'><is><t xml:space="preserve">'+xe(v)+'</t></is></c>'}).join('')+'</row>'});
+return x+'</sheetData></worksheet>'}
+function xlsx(name,sheets){var files=[
+{n:'[Content_Types].xml',t:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'+sheets.map(function(s,i){return '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'}).join('')+'</Types>'},
+{n:'_rels/.rels',t:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+{n:'xl/workbook.xml',t:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheets.map(function(s,i){return '<sheet name="'+xe(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>'}).join('')+'</sheets></workbook>'},
+{n:'xl/_rels/workbook.xml.rels',t:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map(function(s,i){return '<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>'}).join('')+'<Relationship Id="rId'+(sheets.length+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+{n:'xl/styles.xml',t:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFBE3D6"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'}];
+sheets.forEach(function(s,i){files.push({n:'xl/worksheets/sheet'+(i+1)+'.xml',t:sheetXml(s.rows,s.w)})});
+var a=document.createElement('a');a.href=URL.createObjectURL(zipStore(files));a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
+function xlsxAll(){var B=admBuild(S.admData||{}),done={};
+(S.admData&&S.admData.ev||[]).forEach(function(e){if(e.tipo==='sent'){done[e.id]=(done[e.id]||[]);var m=p2(e.mesa);if(done[e.id].indexOf(m)<0)done[e.id].push(m)}});
+var reg=[['Fecha de registro','Nombre','Empresa','WhatsApp','Consentimiento','Orden de mesas asignado','Mesas a las que asistió','Mesas con nota de voz enviada']].concat(B.regs.map(function(x){var r=x.r;return[fdia(r.fecha),r.nombre,r.empresa,waFmt(r.whatsapp),r.consentimiento,r.orden_mesas,x.mesas,(done[r.id]||[]).sort().join(', ')]}));
+var rep=[['Mesa','Tema','Participante','Empresa','WhatsApp','Hora de llegada','Responsable de grabación','Nota de voz enviada']];
+B.mesas.forEach(function(x){x.rows.forEach(function(r){rep.push([x.m.n,x.m.t,r.nombre,r.empresa,waFmt(r.wa),hhmm(r.hora),r.graba?'Sí':'No',r.envio?'Sí':'No'])})});
+var res=[['Mesa','Tema','Asistentes','Responsable de grabación','Notas de voz enviadas']].concat(B.mesas.map(function(x){return[x.m.n,x.m.t,x.rows.length,x.top?x.top.n:'—',x.rows.filter(function(r){return r.envio}).length]}));
+xlsx('pr-open-registrados-y-mesas.xlsx',[{name:'Registrados',rows:reg,w:[20,28,26,18,16,22,22,26]},{name:'Reporte por mesa',rows:rep,w:[8,38,28,26,18,16,26,18]},{name:'Resumen',rows:res,w:[8,38,12,28,22]}])}
 function csvMesa(){var B=admBuild(S.admData||{}),rows=[['Mesa','Tema','Participante','Empresa','WhatsApp','Hora de llegada','Responsable de grabación','Nota de voz enviada']];
 B.mesas.forEach(function(x){x.rows.forEach(function(r){rows.push([x.m.n,x.m.t,r.nombre,r.empresa,String(r.wa||'').replace(/^\+/,''),hhmm(r.hora),r.graba?'Sí':'No',r.envio?'Sí':'No'])})});dl('pr-open-reporte-por-mesa.csv',rows)}
 function fmt(s){var m=Math.floor(s/60),r=s%60;return(m<10?'0':'')+m+':'+(r<10?'0':'')+r}
@@ -254,7 +326,7 @@ svg+='<circle class="glow" style="animation-duration:'+(2+k*.37).toFixed(2)+'s" 
 svg+='<circle class="hub" cx="'+CX+'" cy="'+CY+'" r="22" fill="#E46A2B" stroke="#E46A2B"/><text x="'+CX+'" y="'+(CY+4)+'" text-anchor="middle" font-size="12" font-weight="500" fill="#fff" font-family="Helvetica Neue,Helvetica,Arial,sans-serif">M'+m.n+'</text><text x="12" y="310" font-size="9.5" letter-spacing="1" fill="#8f8c87" font-family="Helvetica Neue,Helvetica,Arial,sans-serif">TAMAÑO = MENCIONES · LÍNEA = IDEAS EN COMÚN</text>';
 var cells=pz.g.map(function(ch,k){var o=pz.o[k],c=(S.hi!==null&&o.indexOf(S.hi)>=0)?'h':(o.length?'w':'');return '<span class="cell '+c+'">'+ch+'</span>'}).join('');
 var all=S.done.every(Boolean);
-return '<div class="k">MESA '+m.n+' · RESULTADOS</div><h2 style="font-size:28px">'+m.t+'</h2>'+
+return '<div class="k">MESA '+m.n+' · RESULTADOS</div><h2 style="font-size:28px">'+m.t+'</h2><button class="btn ghost sm" data-a="pdf">Descargar resumen en PDF</button>'+
 '<div style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="sec">MAPA NEURONAL DE LA MESA</div><div style="font-size:11px;color:#A9A59F">'+m.nodes.length+' ideas · '+(m.nodes.length+m.links.length)+' conexiones</div></div><svg class="net" viewBox="0 0 342 320" role="img" aria-label="Mapa de ideas en común de la mesa '+m.n+'">'+svg+'</svg></div>'+
 '<div style="display:flex;flex-direction:column;gap:8px"><div class="sec">A · RESUMEN</div><p style="color:#E6E2DB;line-height:1.55">'+m.sum+'</p></div>'+
 '<div style="display:flex;flex-direction:column;gap:8px"><div class="sec">B · CONCLUSIONES</div>'+m.concl.map(function(c){return '<div class="dash"><span style="color:var(--acc)">—</span><span>'+c+'</span></div>'}).join('')+'</div>'+
@@ -269,7 +341,7 @@ return '<div class="k">ADMINISTRACIÓN · PR OPEN</div><h2>Registrados<br><span>
 (API_URL?'':'<div class="note">Modo local: solo se ven los registros hechos en este dispositivo. Conecta la base de datos (API_URL) para ver los de todos los asistentes.</div>')+
 (S.admErr?'<div class="err">'+esc(S.admErr)+'</div>':'')+
 '<div class="stats"><div><b>'+B.reg.length+'</b><span>Registrados</span></div>'+B.mesas.map(function(x){return '<div><b>'+x.rows.length+'</b><span>En mesa '+x.m.n+'</span></div>'}).join('')+'</div>'+
-'<div class="chips"><button class="btn sm" style="width:auto" data-a="csvreg">Descargar registrados (.csv)</button><button class="btn sm" style="width:auto" data-a="csvmesa">Descargar reporte por mesa (.csv)</button><button class="btn ghost sm" style="width:auto" data-a="admrefresh">'+(S.admBusy?'Actualizando…':'Actualizar')+'</button><button class="btn ghost sm" style="width:auto" data-a="admexit">Cerrar sesión</button></div>'+
+'<div class="chips"><button class="btn sm" style="width:auto" data-a="xlsx">Descargar Excel (.xlsx)</button><button class="btn ghost sm" style="width:auto" data-a="csvreg">CSV registrados</button><button class="btn ghost sm" style="width:auto" data-a="csvmesa">CSV por mesa</button><button class="btn ghost sm" style="width:auto" data-a="admrefresh">'+(S.admBusy?'Actualizando…':'Actualizar')+'</button><button class="btn ghost sm" style="width:auto" data-a="admexit">Cerrar sesión</button></div>'+
 '<div class="sec">BASE DE DATOS DE REGISTRADOS</div><div class="scroll"><table class="tbl"><thead><tr><th>FECHA</th><th>NOMBRE</th><th>EMPRESA</th><th>WHATSAPP</th><th>ORDEN ASIGNADO</th><th>ASISTIÓ A</th></tr></thead><tbody>'+regRows+'</tbody></table></div>'+
 B.mesas.map(function(x){var rows=x.rows.length?x.rows.map(function(r){return '<tr><td>'+esc(r.nombre)+'</td><td>'+esc(r.empresa)+'</td><td>'+esc(waFmt(r.wa))+'</td><td>'+esc(hhmm(r.hora))+'</td><td>'+(r.graba?'Sí':'—')+'</td><td>'+(r.envio?'Sí':'—')+'</td></tr>'}).join(''):'<tr><td colspan="6" style="color:var(--mut)">Nadie ha marcado asistencia en esta mesa.</td></tr>';
 return '<div class="sec">MESA '+x.m.n+' · '+x.m.t.toUpperCase()+'</div><p style="font-size:14px">Responsable de la grabación: <b style="font-weight:400;color:var(--ink)">'+(x.top?esc(x.top.n):'—')+'</b></p><div class="scroll"><table class="tbl"><thead><tr><th>PARTICIPANTE</th><th>EMPRESA</th><th>WHATSAPP</th><th>LLEGADA</th><th>GRABA</th><th>NOTA ENVIADA</th></tr></thead><tbody>'+rows+'</tbody></table></div>'}).join('')+
@@ -297,6 +369,8 @@ else if(a==='fin')set({step:'fin'});
 else if(a==='forget')forget();
 else if(a==='admin')adminLogin();
 else if(a==='admrefresh')admLoad(S.admPw);
+else if(a==='pdf')pdfMesa(S.view);
+else if(a==='xlsx')xlsxAll();
 else if(a==='csvreg')csvReg();
 else if(a==='csvmesa')csvMesa();
 else if(a==='admexit'){history.replaceState(null,'',location.pathname+location.search);var pv=S.prev;if(['grabar','jefe','proc','asigna','admin','adminlogin'].indexOf(pv)>=0)pv=S.id?'mesas':'welcome';set({step:pv,admData:null,admPw:'',pw:'',admErr:''})}});

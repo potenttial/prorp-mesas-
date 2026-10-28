@@ -126,7 +126,7 @@ links:[[0,2],[0,6],[1,3],[1,5],[3,4],[2,7],[6,5],[4,0],[7,0]],
 words:['VALOR','METRICAS','PITCH','HONORARIOS','CODIGO','CONFIANZA','CLIENTES']}];
 var DEMO=[['p2','Mariana López','Agencia Ámbar'],['p3','Ricardo Salas','Puente Comunicación'],['p4','Fernanda Ortiz','Relata PR'],['p5','Jorge Medina','Voz Corporativa'],['p6','Lucía Herrera','Mosaico Medios']];
 var STEPS=['Nota de voz recibida','Transcribiendo audio','Resumen de lo platicado','Conclusiones y acciones clave','Mapa neuronal y sopa de letras','Enviando liga por WhatsApp'];
-var S={step:'welcome',name:'',company:'',wa:'',consent:false,mesa:0,done:[false,false,false],view:0,jefe:null,proc:0,hi:null,rec:false,sec:0,audioUrl:'',demoAudio:false,err:'',id:'',order:[0,1,2],spin:0,assigning:false,peers:[],pw:'',admErr:'',admBusy:false,admData:null,admPw:'',prev:'welcome'};
+var S={step:'welcome',name:'',company:'',wa:'',consent:false,mesa:0,done:[false,false,false],view:0,jefe:null,proc:0,hi:null,rec:false,sec:0,audioUrl:'',demoAudio:false,err:'',id:'',order:[0,1,2],spin:0,assigning:false,peers:[],pw:'',admErr:'',admBusy:false,admData:null,admPw:'',prev:'welcome',back:false};
 var MR=null,CH=[],TK=null,WL=null,BLOB=null;
 
 /* ===== Base de datos =====
@@ -146,11 +146,25 @@ function track(ev){ev.fecha=new Date().toISOString();ev.id=S.id;if(API_URL)send(
 function stopPeers(){clearTimeout(PT);PT=null}
 function pollPeers(){stopPeers();if(!API_URL)return;(function go(){api({action:'peers',mesa:MESAS[S.mesa].n}).then(function(r){if(r&&r.ok){var p=(r.peers||[]).filter(function(x){return x.id!==S.id});if(JSON.stringify(p)!==JSON.stringify(S.peers)){S.peers=p;if(S.step==='jefe')render()}}}).catch(function(){});PT=setTimeout(go,5000)})()}
 function people(){var me=[S.id||'me',(S.name.trim()||'Tú')+' (tú)',S.company||'Tu agencia'];return [me].concat(API_URL?S.peers.map(function(p){return[p.id,p.nombre,p.empresa]}):DEMO)}
+var SK='prorp_pr_open_session';
+function persist(){try{localStorage.setItem(SK,JSON.stringify({id:S.id,name:S.name,company:S.company,wa:S.wa,order:S.order,done:S.done}))}catch(e){}}
+function restore(){try{var s=JSON.parse(localStorage.getItem(SK));if(s&&s.id&&s.order&&s.order.length===3){S.id=s.id;S.name=s.name||'';S.company=s.company||'';S.wa=s.wa||'';S.order=s.order;S.done=s.done||[false,false,false];S.consent=true;S.step='mesas';S.back=true}}catch(e){}}
+function forget(){try{localStorage.removeItem(SK)}catch(e){}S.id='';S.name='';S.company='';S.wa='';S.consent=false;S.done=[false,false,false];S.order=[0,1,2];S.back=false;S.jefe=null;set({step:'welcome'})}
+function begin(id,o){S.id=id;set({step:'asigna',order:o,mesa:o[0],assigning:true,spin:0,done:[false,false,false],peers:[],back:false});
+var n=0;clearInterval(SPIN);SPIN=setInterval(function(){n++;if(n>=16){clearInterval(SPIN);set2({assigning:false,spin:S.order[0]})}else set2({spin:n%3})},140)}
+/* la persona ya estaba registrada (mismo WhatsApp): conserva su orden y las mesas que ya hizo */
+function adopt(reg,doneNums){var o=String(reg.orden_mesas||'').split('>').map(function(x){return parseInt(x,10)-1});
+if(!(o.length===3&&[0,1,2].every(function(k){return o.indexOf(k)>=0})))o=[0,1,2];
+var dn=(doneNums||[]).map(p2),dd=MESAS.map(function(m){return dn.indexOf(m.n)>=0});
+clearInterval(SPIN);S.id=reg.id;set({step:'mesas',order:o,done:dd,assigning:false,back:true,peers:[],jefe:null})}
 function assign(){var o=[0,1,2],i,j,t;for(i=2;i>0;i--){j=Math.floor(Math.random()*(i+1));t=o[i];o[i]=o[j];o[j]=t}
-S.id=newId();var r={id:S.id,fecha:new Date().toISOString(),nombre:S.name.trim(),empresa:S.company.trim(),whatsapp:'+52'+S.wa.replace(/\D/g,''),consentimiento:'sí',orden_mesas:o.map(function(k){return MESAS[k].n}).join(' > ')};
-if(API_URL)send({action:'register',reg:r});else{var d=ldb();d.reg.push(r);lsave(d)}
-set({step:'asigna',order:o,mesa:o[0],assigning:true,spin:0,done:[false,false,false],peers:[]});
-var n=0;clearInterval(SPIN);SPIN=setInterval(function(){n++;if(n>=16){clearInterval(SPIN);set2({assigning:false,spin:o[0]})}else set2({spin:n%3})},140)}
+var wa='+52'+S.wa.replace(/\D/g,'');
+var r={id:newId(),fecha:new Date().toISOString(),nombre:S.name.trim(),empresa:S.company.trim(),whatsapp:wa,consentimiento:'sí',orden_mesas:o.map(function(k){return MESAS[k].n}).join(' > ')};
+if(!API_URL){var d=ldb(),prev=d.reg.filter(function(x){return x.whatsapp===wa})[0];
+if(prev){adopt(prev,d.ev.filter(function(e){return e.id===prev.id&&e.tipo==='sent'}).map(function(e){return e.mesa}));return}
+d.reg.push(r);lsave(d);begin(r.id,o);return}
+begin(r.id,o);
+api({action:'register',reg:r}).then(function(res){if(res&&res.existing)adopt(res.reg,res.done);else if(!(res&&res.ok))send({action:'register',reg:r})}).catch(function(){send({action:'register',reg:r})})}
 function sha(s){return crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)).then(function(b){return Array.prototype.map.call(new Uint8Array(b),function(x){return('0'+x.toString(16)).slice(-2)}).join('')})}
 function admLoad(pw){set2({admBusy:true,admErr:''});
 if(API_URL){api({action:'admin',pw:pw}).then(function(r){if(r&&r.ok)set({step:'admin',admData:{reg:r.reg||[],ev:r.ev||[]},admPw:pw,admBusy:false,pw:'',admErr:''});else set2({admBusy:false,admErr:'Contraseña incorrecta.',pw:''})}).catch(function(){set2({admBusy:false,admErr:'No se pudo conectar con la base de datos.'})})}
@@ -185,7 +199,7 @@ function set2(o){for(var k in o)S[k]=o[k];render()}
 var N=12,CX=171,CY=160,CACHE={};
 var $m=document.getElementById('main');
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-function set(o){for(var k in o)S[k]=o[k];render();window.scrollTo(0,0)}
+function set(o){for(var k in o)S[k]=o[k];if(S.id)persist();render();window.scrollTo(0,0)}
 function first(){return (S.name.trim().split(' ')[0])||'participante'}
 function regOk(){return S.name.trim().length>2&&S.company.trim().length>1&&S.wa.replace(/\D/g,'').length===10&&S.consent}
 function rng(seed){var s=seed;return function(){s=(s*9301+49297)%233280;return s/233280}}
@@ -209,9 +223,9 @@ registro:function(){return '<div class="k">REGISTRO</div><h2>Antes de sentarte<b
 '<div class="field"><label for="f-wa">WhatsApp</label><div style="display:flex;gap:8px"><div class="in" style="width:auto;display:flex;align-items:center;color:#DAD6CF">+52</div><input class="in" id="f-wa" data-f="wa" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="55 1234 5678" value="'+esc(S.wa)+'"></div></div>'+
 '<label class="consent" for="f-ok"><input type="checkbox" id="f-ok" data-f="consent"'+(S.consent?' checked':'')+'><span>Acepto recibir por WhatsApp el resumen, las conclusiones y las acciones clave de cada mesa.</span></label>'+
 '<button class="btn" id="regbtn" data-a="enter"'+(regOk()?'':' disabled')+'>Registrarme y sortear mi mesa</button><div style="font-size:12px;color:#A9A59F">Tus datos (nombre, empresa, WhatsApp y mesa) se guardan para enviarte los resultados y generar el reporte de asistencia de PR Open.</div>'},
-mesas:function(){var dc=S.done.filter(Boolean).length;return '<div class="k">TUS MESAS · '+dc+' DE 3 COMPLETADAS</div><h2>Hola, '+esc(first())+'.<br><span>Esta es tu mesa asignada.</span></h2><div style="font-size:14px;color:#DAD6CF">'+esc(S.company)+' · Asignación aleatoria. Rotas por las tres mesas.</div><div class="list">'+
-S.order.map(function(i,pos){var m=MESAS[i],d=S.done[i],now=!d&&pos===dc;return '<div class="row" style="flex-direction:column;gap:10px"><div style="display:flex;gap:14px;align-items:flex-start;width:100%"><span class="num">'+m.n+'</span><div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:16px;line-height:1.3;font-weight:400">'+m.t+'</div><div style="font-size:13px;line-height:1.4;color:var(--mut)">'+m.q+'</div></div><span class="pill'+(d?' ok':(now?' now':' nx'))+'">'+(d?'Lista':(now?'Tu mesa ahora':'Siguiente · '+(pos+1)+' de 3'))+'</span></div>'+
-(d?'<button class="btn ghost sm" style="margin-left:46px;width:auto;border-color:#666" data-a="view" data-i="'+i+'">Ver resumen y mapa de ideas</button>':(now?'<button class="btn sm" style="margin-left:46px;width:auto" data-a="start" data-i="'+i+'">Estoy en la mesa '+m.n+'</button>':''))+'</div>'}).join('')+'</div>'},
+mesas:function(){var dc=S.done.filter(Boolean).length,nx=S.order.filter(function(k){return !S.done[k]})[0];return '<div class="k">TUS MESAS · '+dc+' DE 3 COMPLETADAS</div><h2>Hola, '+esc(first())+'.<br><span>Esta es tu mesa asignada.</span></h2><div style="font-size:14px;color:#DAD6CF">'+esc(S.company)+' · Asignación aleatoria. Rotas por las tres mesas.</div>'+(S.back?'<div class="note">Ya estabas registrado con este WhatsApp: continúas donde te quedaste y no repites mesas.</div>':'')+'<div class="list">'+
+S.order.map(function(i,pos){var m=MESAS[i],d=S.done[i],now=!d&&i===nx;return '<div class="row" style="flex-direction:column;gap:10px"><div style="display:flex;gap:14px;align-items:flex-start;width:100%"><span class="num">'+m.n+'</span><div style="flex:1;display:flex;flex-direction:column;gap:4px"><div style="font-size:16px;line-height:1.3;font-weight:400">'+m.t+'</div><div style="font-size:13px;line-height:1.4;color:var(--mut)">'+m.q+'</div></div><span class="pill'+(d?' ok':(now?' now':' nx'))+'">'+(d?'Lista':(now?'Tu mesa ahora':'Siguiente · '+(pos+1)+' de 3'))+'</span></div>'+
+(d?'<button class="btn ghost sm" style="margin-left:46px;width:auto;border-color:#666" data-a="view" data-i="'+i+'">Ver resumen y mapa de ideas</button>':(now?'<button class="btn sm" style="margin-left:46px;width:auto" data-a="start" data-i="'+i+'">Estoy en la mesa '+m.n+'</button>':''))+'</div>'}).join('')+'</div><button class="link" data-a="forget">No soy yo · registrar a otra persona</button>'},
 asigna:function(){var idx=S.assigning?S.spin:S.order[0],m=MESAS[idx];
 return '<div class="k">ASIGNACIÓN ALEATORIA</div><h2>'+(S.assigning?'Sorteando<br><span>tu mesa…</span>':'Tu mesa<br><span>asignada.</span>')+'</h2><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:190px;padding:0 20px;border:1px solid var(--line);border-radius:6px;background:#2b2b2b"><div class="big" style="color:'+(S.assigning?'#8f8c87':'var(--acc)')+'">'+m.n+'</div><div style="font-size:15px;line-height:1.35;text-align:center;color:#DAD6CF">'+m.t+'</div></div>'+(S.assigning?'':'<p style="font-size:14px">Tu recorrido por las tres mesas: <span style="color:var(--acc);font-weight:400">'+S.order.map(function(k){return MESAS[k].n}).join(' → ')+'</span></p><button class="btn" data-a="mesas">Ir a mi mesa</button>')},
 jefe:function(){var m=MESAS[S.mesa],all=people(),ok=!!S.jefe;
@@ -280,6 +294,7 @@ else if(a==='demo'){set2({demoAudio:true,err:'',sec:1080})}
 else if(a==='send'){track({tipo:'sent',mesa:MESAS[S.mesa].n});proc()}
 else if(a==='hi'){S.hi=(S.hi===+i)?null:+i;render()}
 else if(a==='fin')set({step:'fin'});
+else if(a==='forget')forget();
 else if(a==='admin')adminLogin();
 else if(a==='admrefresh')admLoad(S.admPw);
 else if(a==='csvreg')csvReg();
@@ -290,7 +305,7 @@ $m.addEventListener('change',function(e){if(e.target.dataset.f==='consent'){S.co
 $m.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.id==='f-pw'){e.preventDefault();adminLogin()}});
 function chkHash(){if(location.hash==='#admin'&&S.step!=='admin'&&S.step!=='adminlogin'){S.prev=S.step;stopRec();set({step:'adminlogin',pw:'',admErr:''})}}
 window.addEventListener('hashchange',chkHash);
-render();chkHash();
+restore();render();chkHash();
 </script>
 </body>
 </html>

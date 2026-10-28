@@ -51,8 +51,24 @@ function doPost(e) {
   try {
     var b = JSON.parse(e.postData.contents);
 
+    // Registro. Si el WhatsApp ya existe, devuelve su registro y las mesas ya
+    // completadas (con nota de voz enviada) para que no repita ninguna.
     if (b.action === 'register') {
-      append_('Registrados', b.reg || {});
+      var r0 = b.reg || {}, wa = String(r0.whatsapp || '').replace(/\D/g, '');
+      var prev = wa && rows_('Registrados').filter(function (x) {
+        return String(x.whatsapp).replace(/\D/g, '') === wa;
+      })[0];
+      if (prev) {
+        var done = [];
+        rows_('Eventos').forEach(function (x) {
+          if (x.id === prev.id && x.tipo === 'sent' && done.indexOf(x.mesa) < 0) done.push(x.mesa);
+        });
+        return json_({
+          ok: true, existing: true, done: done,
+          reg: { id: prev.id, nombre: prev.nombre, empresa: prev.empresa, orden_mesas: prev.orden_mesas }
+        });
+      }
+      append_('Registrados', r0);
       return json_({ ok: true });
     }
 
